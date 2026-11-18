@@ -1,0 +1,112 @@
+#include <main1125.h>
+
+#define LCD_RS_PIN     PIN_B4
+#define LCD_RW_PIN     PIN_B3
+#define LCD_ENABLE_PIN PIN_B2
+#define LCD_DATA4      PIN_D4
+#define LCD_DATA5      PIN_D5
+#define LCD_DATA6      PIN_D6
+#define LCD_DATA7      PIN_D7
+
+#include <lcd.c>
+
+#use I2C(MASTER, SLOW, SDA = PIN_C4, SCL = PIN_C3)
+#define MODE PIN_B5
+#define INC PIN_B6
+
+char time[] = "TIME: : : ";
+char temp[] = "TEMP:   C ";
+unsigned int8 second, minute, hour;
+int16 temperature = 0;
+
+void ds1307_display() {
+    unsigned int8 sec = ((second >> 4) * 10) + (second & 0x0F);
+    unsigned int8 min = ((minute >> 4) * 10) + (minute & 0x0F);
+    unsigned int8 hr = ((hour >> 4) * 10) + (hour & 0x0F);
+
+    time[12] = sec % 10 + '0';
+    time[11] = sec / 10 + '0';
+    time[9] = min % 10 + '0';
+    time[8] = min / 10 + '0';
+    time[6] = hr % 10 + '0';
+    time[5] = hr / 10 + '0';
+
+    set_adc_channel(0);
+    delay_ms(10);
+    temperature = read_adc() * 0.488;
+
+    temp[8] = temperature % 10 + '0';
+    temp[7] = (temperature / 10) % 10 + '0';
+    temp[6] = (temperature / 100) % 10 + '0';
+
+    lcd_gotoxy(1, 1);
+    printf(lcd_putc, time);
+    lcd_gotoxy(1, 2);
+    printf(lcd_putc, temp);
+}
+
+void ds1307_write(unsigned int8 address, unsigned int8 data_) {
+    i2c_start();
+    i2c_write(0xD0);
+    i2c_write(address);
+    i2c_write(data_);
+    i2c_stop();
+}
+
+void ds1307_init() {
+
+    i2c_start();
+    i2c_write(0xD0);
+    i2c_write(0x00);
+    i2c_start();
+    i2c_write(0xD1);
+    unsigned int8 sec = i2c_read(0);
+    i2c_stop();
+
+    if (bit_test(sec, 7)) {
+        bit_clear(sec, 7);
+        ds1307_write(0x00, sec);
+    }
+
+    ds1307_write(0x01, 0x59);
+    ds1307_write(0x02, 0x23);
+}
+
+void main() {
+    setup_adc(ADC_CLOCK_DIV_8);
+    setup_adc_ports(SAN0, VSS_VDD);
+    port_b_pullups(96);
+    lcd_init();
+    lcd_putc('\f');
+    ds1307_init();
+
+    unsigned int8 mode = 0;
+
+    while(TRUE) {
+        i2c_start();
+        i2c_write(0xD0);
+        i2c_write(0);
+        i2c_start();
+        i2c_write(0xD1);
+        second = i2c_read(1);
+        minute = i2c_read(1);
+        hour = i2c_read(0);
+        i2c_stop();
+
+        ds1307_display();
+        delay_ms(50);
+
+        if(mode > 3) {
+            second = ((temp_sec / 10) << 4) + (temp_sec % 10);
+            minute = ((temp_min / 10) << 4) + (temp_min % 10);
+            hour = ((temp_hr / 10) << 4) + (temp_hr % 10);
+
+            ds1307_write(0, second);
+            ds1307_write(1, minute);
+            ds1307_write(2, hour);
+
+            mode = 0;
+            lcd_putc('\f');
+        }
+    }
+}
